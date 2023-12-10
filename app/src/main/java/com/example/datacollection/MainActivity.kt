@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.IBinder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -31,8 +32,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat.getSystemService
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.datacollection.ui.theme.DataCollectionTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
 
 enum class Direction{
     indicator_off,
@@ -41,12 +48,6 @@ enum class Direction{
 }
 private val accelerometerReading = FloatArray(3)
 
-class CSVWritingService : Service() {
-
-    override fun onBind(p0: Intent?): IBinder? {
-        TODO("Not yet implemented")
-    }
-}
 
 class CollectionService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent?){
@@ -72,9 +73,9 @@ class CollectionService : Service(), SensorEventListener {
 //private lateinit var sensorManager: SensorManager
 
 class MainActivity : ComponentActivity() {
+    private val viewModel: MyViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        var CSVWriter = CSVWritingService()
         var dataCollector = CollectionService()
         // 1
         var sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
@@ -82,6 +83,7 @@ class MainActivity : ComponentActivity() {
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.also { accelerometer ->
             sensorManager.registerListener(dataCollector, accelerometer, SensorManager.SENSOR_DELAY_NORMAL, SensorManager.SENSOR_DELAY_UI)
         }
+
         super.onCreate(savedInstanceState)
         setContent {
             DataCollectionTheme {
@@ -89,9 +91,8 @@ class MainActivity : ComponentActivity() {
                         .fillMaxSize()
                         .wrapContentSize(Alignment.Center)
                         .padding(16.dp),
-                        dataCollector,
                         this,
-                        CSVWriter,
+                        viewModel
                     )
             }
         }
@@ -100,10 +101,10 @@ class MainActivity : ComponentActivity() {
 
 
 @Composable
-fun OrganizeFrames(modifier: Modifier = Modifier, dataCollector: CollectionService, context: Context, CSVWriter: CSVWritingService){
+fun OrganizeFrames(modifier: Modifier = Modifier, context: Context, viewModel: MyViewModel){
     var isRunning by remember { mutableStateOf(false)}
     isRunning = if(isRunning){
-        RunningPage(modifier, dataCollector, context, CSVWriter)
+        RunningPage(modifier, context, viewModel)
     }else{
         StartPage(modifier)
     }
@@ -128,13 +129,14 @@ fun StartPage(modifier: Modifier = Modifier): Boolean {
 }
 
 @Composable
-fun RunningPage(modifier: Modifier = Modifier, dataCollector: CollectionService, context: Context, CSVWriter: CSVWritingService): Boolean {
+fun RunningPage(modifier: Modifier = Modifier, context: Context, viewModel: MyViewModel): Boolean {
     var isRunning by remember { mutableStateOf(true)}
     var indicatorstate:Direction by remember{mutableStateOf(Direction.indicator_off)}
     val intent = Intent(context, CollectionService::class.java)
+    val measurements = viewModel.measurements.value.orEmpty()
     context.startService(intent)
-    val CSVintent = Intent(context, CSVWritingService::class.java)
-    context.startService(CSVintent)
+
+
 
     Column(
         modifier = modifier,
@@ -144,13 +146,18 @@ fun RunningPage(modifier: Modifier = Modifier, dataCollector: CollectionService,
         Direction.indicator_off -> Text("X", fontSize = 128.sp)
         Direction.indicator_left -> Text("<", fontSize = 128.sp)
         Direction.indicator_right -> Text(">", fontSize = 128.sp)
-        else -> Text("error! State unknown!")
     }
-        var printthis = accelerometerReading.contentToString()
+        //var printthis = accelerometerReading.contentToString()
         Text(
-            printthis,
+            "Accelerometer Readings: ${
+                if (measurements.isNotEmpty()) measurements[measurements.size - 1].contentToString() else "No readings"
+            }",
             fontSize = 32.sp
         )
+
+
+
+
         Row(modifier = Modifier
             .weight(5f)
             .fillMaxSize()
@@ -184,4 +191,19 @@ fun RunningPage(modifier: Modifier = Modifier, dataCollector: CollectionService,
         }
     }
     return isRunning
+}
+class MyViewModel : ViewModel() {
+    private val _measurements = MutableLiveData<List<FloatArray>>()
+    val measurements: LiveData<List<FloatArray>> get() = _measurements
+
+    init {
+        viewModelScope.launch {
+            val measurementsList = mutableListOf<FloatArray>()
+            while (true) {
+                measurementsList.add(accelerometerReading.clone())
+                _measurements.postValue(measurementsList.toList())
+                delay(500)
+            }
+        }
+    }
 }
