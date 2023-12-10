@@ -1,5 +1,6 @@
 package com.example.datacollection
 
+import android.app.Application
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -9,6 +10,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.os.IBinder
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -32,13 +34,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.datacollection.ui.theme.DataCollectionTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileWriter
+import java.io.IOException
+
 
 
 enum class Direction{
@@ -183,16 +192,20 @@ fun RunningPage(modifier: Modifier = Modifier, context: Context, viewModel: MyVi
                     .padding(16.dp)) {
                 Text("OFF", fontSize = 64.sp)
             }
-            Button(onClick = { isRunning = false }, modifier = Modifier
+            Button(onClick = {
+                isRunning = false
+                viewModel.stopDataCollection()
+                             }, modifier = Modifier
                 .weight(3f)
                 .fillMaxWidth()
                 .padding(16.dp)) {
+
                 Text(stringResource(R.string.stop), fontSize = 64.sp)
         }
     }
     return isRunning
 }
-class MyViewModel : ViewModel() {
+class MyViewModel(application: Application) : AndroidViewModel(application) {
     private val _measurements = MutableLiveData<List<FloatArray>>()
     val measurements: LiveData<List<FloatArray>> get() = _measurements
 
@@ -202,8 +215,43 @@ class MyViewModel : ViewModel() {
             while (true) {
                 measurementsList.add(accelerometerReading.clone())
                 _measurements.postValue(measurementsList.toList())
-                delay(500)
+                delay(50)
             }
+        }
+    }
+    override fun onCleared() {
+        super.onCleared()
+        Log.d("DataCollectionLogging", "onCleared called")
+        // Perform cleanup tasks, e.g., save data to CSV file
+    }
+    private suspend fun saveDataToCsv() {
+        withContext(Dispatchers.IO) {
+            try {
+                val csvFile = File(getApplication<Application>().filesDir, "data.csv")
+                val csvWriter = FileWriter(csvFile)
+
+                // Write header
+                csvWriter.write("X,Y,Z,Indicator\n")
+
+                val measurementsCopy = ArrayList(measurements.value)
+                // Write measurements
+                for (measurement in measurementsCopy) {
+                    csvWriter.write("${measurement[0]},${measurement[1]},${measurement[2]},${Direction}\n")//TODO print the direction in the csv file
+                }
+                Log.d("DataCollectionLogging", "Data saved to CSV file. Path: ${csvFile.absolutePath}")
+                csvWriter.close()
+            } catch (e: IOException) {
+                // Handle IOException
+                Log.e("DataCollectionLogging", "Error saving data to CSV file: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+    fun stopDataCollection() {
+        viewModelScope.launch {
+            saveDataToCsv()
+            viewModelScope.cancel()
+            onCleared()
         }
     }
 }
