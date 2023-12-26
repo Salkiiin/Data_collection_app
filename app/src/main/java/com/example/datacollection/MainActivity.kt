@@ -4,7 +4,6 @@ import android.app.Application
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.ImageFormat
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -17,7 +16,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,9 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
@@ -53,12 +49,9 @@ import java.io.IOException
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
+import android.util.Size
 import androidx.core.content.ContextCompat
-import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.core.content.FileProvider
 import androidx.lifecycle.LifecycleOwner
 import java.text.SimpleDateFormat
 import java.util.*
@@ -68,26 +61,22 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.CameraSelector
 import androidx.core.app.ActivityCompat
-import androidx.core.view.KeyEventDispatcher.Component
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import java.util.concurrent.ExecutionException
 import kotlin.collections.ArrayList
-import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory
-import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.util.*
+
 
 class MyViewModelFactory(
     private val application: Application,
     private val lifecycleOwner: LifecycleOwner
 ) : ViewModelProvider.Factory{
 
-    override//TODO: what the actual fuck is wrong with this shittttttttttttttt FUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUCK
+    override
 
     fun
 
-            <T : ViewModel?>
+            <T : ViewModel>
 
             create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MyViewModel::class.java)) {
@@ -102,13 +91,7 @@ class MyViewModelFactory(
 private const val TAG = "CameraXExample"
 private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
 
-fun takePicture(context: Context, lifecycleOwner: LifecycleOwner): String {
-    // Check camera permission
-    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-        // Handle permission not granted
-        Log.e(TAG, "Camera permission not granted")
-        return ""
-    }
+fun takePicture(context: Context, lifecycleOwner: LifecycleOwner, imageCapture: ImageCapture): String {
 
     // Create output directory
     val outputDirectory = getOutputDirectory(context)
@@ -121,55 +104,31 @@ fun takePicture(context: Context, lifecycleOwner: LifecycleOwner): String {
 
     val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
-    val imageCapture = ImageCapture.Builder()
-        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-        .build()
 
-    // Set up camera provider
-    val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-    cameraProviderFuture.addListener({
-        // Camera provider is now guaranteed to be available
-        val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
 
-        // Set up preview
-        /*val preview = Preview.Builder()
-            .build()
-            .also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-        */
-        try {
-            // Unbind use cases before rebinding
-            cameraProvider.unbindAll()
 
-            // Bind use cases to camera
-            cameraProvider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_FRONT_CAMERA,
-                //preview,
-                imageCapture
-            )
+    // Set up preview and image capture separately
+    //val preview = Preview.Builder().build()
 
-            // Capture image
-            imageCapture.takePicture(
-                outputOptions,
-                ContextCompat.getMainExecutor(context),
-                object : ImageCapture.OnImageSavedCallback {
-                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                        val savedUri = output.savedUri ?: Uri.fromFile(photoFile)
-                        Log.d(TAG, "Image captured: $savedUri")
-                    }
 
-                    override fun onError(exception: ImageCaptureException) {
-                        Log.e(TAG, "Error capturing image: ${exception.message}", exception)
-                    }
+    try{
+        imageCapture.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(context),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    val savedUri = output.savedUri ?: Uri.fromFile(photoFile)
+                    Log.d(TAG, "Image captured: $savedUri")
                 }
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Use case binding failed", e)
-        }
 
-    }, ContextCompat.getMainExecutor(context))
+                override fun onError(exception: ImageCaptureException) {
+                    Log.e(TAG, "Error capturing image: ${exception.message}", exception)
+                }
+            }
+        )
+    }catch(e: Exception){
+        Log.e(TAG, "imageCapture error:", e)
+    }
 
     return photoFile.absolutePath
 }
@@ -189,7 +148,8 @@ enum class Direction{
     indicator_right
 }
 private val accelerometerReading = FloatArray(4)
-private var direction = 0;
+private var direction = 0
+private var isRunning = false
 
 class CollectionService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent?){
@@ -218,7 +178,8 @@ class CollectionService : Service(), SensorEventListener {
 private const val CAMERA_PERMISSION_REQUEST_CODE = 1001
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: MyViewModel by viewModels() {MyViewModelFactory(application, this)}
+    val viewModel: MyViewModel by viewModels {MyViewModelFactory(application, this)}
+
     override fun onCreate(savedInstanceState: Bundle?) {
         var dataCollector = CollectionService()
         // 1
@@ -236,8 +197,8 @@ class MainActivity : ComponentActivity() {
                         .wrapContentSize(Alignment.Center)
                         .padding(16.dp),
                         context = this,
-                        viewModel,
-                        activity = this
+                        activity = this,
+                        viewModel
                     )
             }
         }
@@ -246,9 +207,12 @@ class MainActivity : ComponentActivity() {
 
 
 @Composable
-fun OrganizeFrames(modifier: Modifier = Modifier, context: Context, viewModel: MyViewModel, activity: ComponentActivity){
-    var isRunning by remember { mutableStateOf(false)}
-    isRunning = if(isRunning){
+fun OrganizeFrames(modifier: Modifier = Modifier, context: Context, activity: ComponentActivity, viewModel: MyViewModel){
+    var isRunningChecking by remember { mutableStateOf(false)}
+    Log.d("isRunningState", "Current state of isRunning is: $isRunning")
+
+    isRunningChecking = if(isRunning){
+        viewModel.bindCamera()
         RunningPage(modifier, context, viewModel)
     }else{
         StartPage(modifier, context, activity)
@@ -258,7 +222,7 @@ fun OrganizeFrames(modifier: Modifier = Modifier, context: Context, viewModel: M
 
 @Composable
 fun StartPage(modifier: Modifier = Modifier, context: Context, activity: ComponentActivity): Boolean {
-    var isRunning by remember { mutableStateOf(false)}
+    var isRunningChecking by remember { mutableStateOf(false)}
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -270,7 +234,10 @@ fun StartPage(modifier: Modifier = Modifier, context: Context, activity: Compone
                     Manifest.permission.CAMERA
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
-                isRunning = true
+                isRunningChecking = true
+                isRunning = isRunningChecking
+                Log.d("isRunningState", "State should now be true....isRunningChecking: $isRunningChecking isRunning: $isRunning")
+
             } else {
                 // Request camera permission
                 ActivityCompat.requestPermissions(
@@ -285,28 +252,29 @@ fun StartPage(modifier: Modifier = Modifier, context: Context, activity: Compone
             Text(stringResource(R.string.start), fontSize = 64.sp)
         }
     }
-    return isRunning
+
+    return isRunningChecking
 }
 
 @Composable
 fun RunningPage(modifier: Modifier = Modifier, context: Context, viewModel: MyViewModel): Boolean {
-    var isRunning by remember { mutableStateOf(true)}
+
+    var isRunningChecking by remember { mutableStateOf(true)}
     var indicatorstate:Direction by remember{mutableStateOf(Direction.indicator_off)}
     val intent = Intent(context, CollectionService::class.java)
     val measurements = viewModel.measurements.value.orEmpty()
     context.startService(intent)
 
 
-
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        when(indicatorstate){
-        Direction.indicator_off -> Text("X", fontSize = 128.sp)
-        Direction.indicator_left -> Text("<", fontSize = 128.sp)
-        Direction.indicator_right -> Text(">", fontSize = 128.sp)
-    }
+        when (indicatorstate) {
+            Direction.indicator_off -> Text("X", fontSize = 128.sp)
+            Direction.indicator_left -> Text("<", fontSize = 128.sp)
+            Direction.indicator_right -> Text(">", fontSize = 128.sp)
+        }
         //var printthis = accelerometerReading.contentToString()
         Text(
             "Accelerometer Readings: ${
@@ -318,66 +286,117 @@ fun RunningPage(modifier: Modifier = Modifier, context: Context, viewModel: MyVi
 
 
 
-        Row(modifier = Modifier
-            .weight(5f)
-            .fillMaxSize()
-            .padding(16.dp)){
-                Button(onClick = { indicatorstate = Direction.indicator_left },modifier = Modifier
+        Row(
+            modifier = Modifier
+                .weight(5f)
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Button(
+                onClick = { indicatorstate = Direction.indicator_left }, modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(16.dp)) {
-                    Text("<-", fontSize = 64.sp)
+                    .padding(16.dp)
+            ) {
+                Text("<-", fontSize = 64.sp)
 
-                }
-                Button(onClick = { indicatorstate = Direction.indicator_right},modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .padding(16.dp)) {
-                    Text("->", fontSize = 64.sp)
-                }
             }
             Button(
-                onClick = { indicatorstate = Direction.indicator_off }, modifier = Modifier
-                    .weight(3f)
-                    .fillMaxWidth()
-                    .padding(16.dp)) {
-                Text("OFF", fontSize = 64.sp)
-                }
-        direction = indicatorstate.ordinal
-            Button(onClick = {
-                isRunning = false
-                viewModel.stopDataCollection()
-                             }, modifier = Modifier
+                onClick = { indicatorstate = Direction.indicator_right }, modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(16.dp)
+            ) {
+                Text("->", fontSize = 64.sp)
+            }
+        }
+        Button(
+            onClick = { indicatorstate = Direction.indicator_off }, modifier = Modifier
                 .weight(3f)
                 .fillMaxWidth()
-                .padding(16.dp)) {
+                .padding(16.dp)
+        ) {
+            Text("OFF", fontSize = 64.sp)
+        }
+        direction = indicatorstate.ordinal
+        Button(
+            onClick = {
+                isRunningChecking = false
+                isRunning = isRunningChecking
+                viewModel.stopDataCollection()
+            }, modifier = Modifier
+                .weight(3f)
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
 
-                Text(stringResource(R.string.stop), fontSize = 64.sp)
-            }
+            Text(stringResource(R.string.stop), fontSize = 64.sp)
+        }
     }
-    return isRunning
+    return isRunningChecking
 }
 class MyViewModel(application: Application, private val lifecycleOwner: LifecycleOwner) : AndroidViewModel(application) {
     private val _measurements = MutableLiveData<List<FloatArray>>()
     private val pathList = mutableListOf<String>()
+    private var cameraProvider: ProcessCameraProvider? = null
+    private val imageCapture = ImageCapture.Builder()
+        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+        .setTargetResolution(Size(300, 400))
+        .build()
     val measurements: LiveData<List<FloatArray>> get() = _measurements
 
     init {
         viewModelScope.launch {
-            val measurementsList = mutableListOf<FloatArray>()
-            while (true) {
-                val picturePath = takePicture(getApplication(), lifecycleOwner)
+
+
+            // Set up camera provider
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(application)
+            try {
+                cameraProvider = cameraProviderFuture.get()
+            } catch (e: ExecutionException) {
+                Log.e(TAG, "Error getting camera provider: ${e.message}", e)
+            } catch (e: InterruptedException) {
+                Log.e(TAG, "Error getting camera provider: ${e.message}", e)
+            }
+            pictureIfRunning()
+        }
+    }
+
+
+    override fun onCleared() {
+        super.onCleared()
+        cameraProvider?.unbindAll()
+        Log.d("DataCollectionLogging", "onCleared called")
+    }
+    private suspend fun pictureIfRunning(){
+        val measurementsList = mutableListOf<FloatArray>()
+        while(true){
+            while(!isRunning){
+                delay(100)
+                Log.d(TAG, "Camera should shut up")
+            }
+            while (isRunning) {
+                Log.d(TAG, "Camera should take pictures now")
+                val picturePath = takePicture(getApplication(), lifecycleOwner, imageCapture)
                 pathList.add(picturePath)
                 measurementsList.add(accelerometerReading.clone())
                 _measurements.postValue(measurementsList.toList())
-                delay(50)
+                delay(100)
             }
         }
     }
-    override fun onCleared() {
-        super.onCleared()
-        Log.d("DataCollectionLogging", "onCleared called")
-        // Perform cleanup tasks, e.g., save data to CSV file
+    fun bindCamera(){
+        try {
+            // Bind use cases to camera
+            cameraProvider?.bindToLifecycle(
+                lifecycleOwner,
+                CameraSelector.DEFAULT_FRONT_CAMERA,
+                //preview,
+                imageCapture
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Use case binding failed", e)
+        }
     }
     private suspend fun saveDataToCsv() {
         withContext(Dispatchers.IO) {
@@ -407,7 +426,7 @@ class MyViewModel(application: Application, private val lifecycleOwner: Lifecycl
     fun stopDataCollection() {
         viewModelScope.launch {
             saveDataToCsv()
-            viewModelScope.cancel()
+            //viewModelScope.cancel()
             onCleared()
         }
     }
@@ -415,7 +434,7 @@ class MyViewModel(application: Application, private val lifecycleOwner: Lifecycl
         private val application: Application,
         private val lifecycleOwner: LifecycleOwner
     ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel?> create(modelClass: Class<T>): T {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(MyViewModel::class.java)) {
                 @Suppress("UNCHECKED_CAST")
                 return MyViewModel(application, lifecycleOwner) as T
