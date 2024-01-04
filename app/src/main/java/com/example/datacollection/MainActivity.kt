@@ -50,6 +50,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Size
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.lifecycle.LifecycleOwner
@@ -65,7 +66,46 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import java.util.concurrent.ExecutionException
 import kotlin.collections.ArrayList
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
+
+fun zipFolder(sourceFolderPath: String, zipFilePath: String) {
+    val sourceFolder = File(sourceFolderPath)
+    val zipFile = File(zipFilePath)
+
+    ZipOutputStream(FileOutputStream(zipFile)).use { zipOutputStream ->
+        zipFolderInternal(sourceFolder, sourceFolder, zipOutputStream)
+    }
+
+    println("Ordner erfolgreich komprimiert: $zipFilePath")
+}
+
+private fun zipFolderInternal(
+    sourceFolder: File,
+    currentFolder: File,
+    zipOutputStream: ZipOutputStream
+) {
+    val fileList = currentFolder.listFiles() ?: return
+
+    for (file in fileList) {
+        if (file.isDirectory) {
+            zipFolderInternal(sourceFolder, file, zipOutputStream)
+        } else {
+            val entryRelativePath = file.toRelativeString(sourceFolder)
+            val zipEntry = ZipEntry(entryRelativePath)
+            zipOutputStream.putNextEntry(zipEntry)
+
+            val inputStream = FileInputStream(file)
+            inputStream.copyTo(zipOutputStream, bufferSize = 1024)
+
+            inputStream.close()
+            zipOutputStream.closeEntry()
+        }
+    }
+}
 
 class MyViewModelFactory(
     private val application: Application,
@@ -103,13 +143,6 @@ fun takePicture(context: Context, lifecycleOwner: LifecycleOwner, imageCapture: 
     val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
     val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-
-
-
-
-    // Set up preview and image capture separately
-    //val preview = Preview.Builder().build()
-
 
     try{
         imageCapture.takePicture(
@@ -401,7 +434,7 @@ class MyViewModel(application: Application, private val lifecycleOwner: Lifecycl
     private suspend fun saveDataToCsv() {
         withContext(Dispatchers.IO) {
             try {
-                val csvFile = File("/storage/emulated/0/Documents/", "data.csv")
+                val csvFile = File(pathList[0].substringBeforeLast('/'), "data.csv")
                 val csvWriter = FileWriter(csvFile)
 
                 // Write header
@@ -423,10 +456,23 @@ class MyViewModel(application: Application, private val lifecycleOwner: Lifecycl
             }
         }
     }
+    private suspend fun zipData(){
+        val zipFilePath = "/storage/emulated/0/Download/schick_mich_an_Niklas_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis()) + ".zip"
+        val sourceFolderPath = pathList[0].substringBeforeLast('/')
+        Log.e("ZipTag", "zipFilePath: $zipFilePath, sourceFolderPath: $sourceFolderPath")
+        zipFolder(sourceFolderPath, zipFilePath)
+
+        for(file in File(sourceFolderPath).listFiles()!!){
+            file.delete()
+        }
+        Toast.makeText(getApplication(), "Daten gespeichert, die App kann jetzt geschlossen werden", Toast.LENGTH_SHORT).show()
+    }
     fun stopDataCollection() {
         viewModelScope.launch {
+            Toast.makeText(getApplication(), "Bitte warten, Daten werden gespeichert", Toast.LENGTH_SHORT).show()
             saveDataToCsv()
             //viewModelScope.cancel()
+            zipData()
             onCleared()
         }
     }
