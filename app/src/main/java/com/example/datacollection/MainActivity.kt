@@ -61,15 +61,23 @@ import java.util.concurrent.Executors
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
+import androidx.compose.runtime.LaunchedEffect
 import androidx.core.app.ActivityCompat
+import androidx.core.app.ActivityCompat.recreate
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import kotlinx.coroutines.yield
 import java.util.concurrent.ExecutionException
 import kotlin.collections.ArrayList
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.flow.StateFlow
 
 
 fun zipFolder(sourceFolderPath: String, zipFilePath: String) {
@@ -183,6 +191,8 @@ enum class Direction{
 private val accelerometerReading = FloatArray(4)
 private var direction = 0
 private var isRunning = false
+private var _isSaving = MutableStateFlow(false)
+val isSaving: StateFlow<Boolean> get () = _isSaving
 
 class CollectionService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent?){
@@ -248,42 +258,61 @@ fun OrganizeFrames(modifier: Modifier = Modifier, context: Context, activity: Co
         viewModel.bindCamera()
         RunningPage(modifier, context, viewModel)
     }else{
-        StartPage(modifier, context, activity)
+        StartPage(modifier, context, activity, viewModel)
     }
 }
 
 
 @Composable
-fun StartPage(modifier: Modifier = Modifier, context: Context, activity: ComponentActivity): Boolean {
+fun StartPage(modifier: Modifier = Modifier, context: Context, activity: ComponentActivity, viewModel: MyViewModel): Boolean {
     var isRunningChecking by remember { mutableStateOf(false)}
+    val isSavingFlow = MutableStateFlow(_isSaving.value)
+
+    LaunchedEffect(key1 = Unit) {
+        while (true) {
+            // Update isSaving based on the actual state from viewModel
+            val currentSaving = isSaving.value
+            if (currentSaving != isSavingFlow.value) {
+                isSavingFlow.value = currentSaving
+            }
+            delay(1000)
+        }
+    }
+val isSaving by isSavingFlow.collectAsState()
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
 
     ) {
-        Button(onClick = {
-            if (ContextCompat.checkSelfPermission(
-                    activity,
-                    Manifest.permission.CAMERA
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                isRunningChecking = true
-                isRunning = isRunningChecking
-                Log.d("isRunningState", "State should now be true....isRunningChecking: $isRunningChecking isRunning: $isRunning")
+        if(isSaving){
+                Text(text = "Saving in progress...\nPlease wait!", fontSize = 32.sp)
+        }else{
+            Button(onClick = {
+                if (ContextCompat.checkSelfPermission(
+                        activity,
+                        Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    isRunningChecking = true
+                    isRunning = isRunningChecking
+                    Log.d("isRunningState", "State should now be true....isRunningChecking: $isRunningChecking isRunning: $isRunning")
 
-            } else {
-                // Request camera permission
-                ActivityCompat.requestPermissions(
-                    activity,
-                    arrayOf(Manifest.permission.CAMERA),
-                    CAMERA_PERMISSION_REQUEST_CODE
-                )
+                } else {
+                    // Request camera permission
+                    ActivityCompat.requestPermissions(
+                        activity,
+                        arrayOf(Manifest.permission.CAMERA),
+                        CAMERA_PERMISSION_REQUEST_CODE
+                    )
+                }
+            },modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()) {
+                Text(stringResource(R.string.start), fontSize = 64.sp)
             }
-        },modifier = Modifier
-            .weight(1f)
-            .fillMaxWidth()) {
-            Text(stringResource(R.string.start), fontSize = 64.sp)
         }
+
+
     }
 
     return isRunningChecking
@@ -362,7 +391,6 @@ fun RunningPage(modifier: Modifier = Modifier, context: Context, viewModel: MyVi
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-
             Text(stringResource(R.string.stop), fontSize = 64.sp)
         }
     }
@@ -374,7 +402,7 @@ class MyViewModel(application: Application, private val lifecycleOwner: Lifecycl
     private var cameraProvider: ProcessCameraProvider? = null
     private val imageCapture = ImageCapture.Builder()
         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-        .setTargetResolution(Size(300, 400))
+        .setJpegQuality(1)
         .build()
     val measurements: LiveData<List<FloatArray>> get() = _measurements
 
@@ -465,10 +493,12 @@ class MyViewModel(application: Application, private val lifecycleOwner: Lifecycl
         for(file in File(sourceFolderPath).listFiles()!!){
             file.delete()
         }
+        _isSaving.value = false
         Toast.makeText(getApplication(), "Daten gespeichert, die App kann jetzt geschlossen werden", Toast.LENGTH_SHORT).show()
     }
     fun stopDataCollection() {
         viewModelScope.launch {
+            _isSaving.value = true
             Toast.makeText(getApplication(), "Bitte warten, Daten werden gespeichert", Toast.LENGTH_SHORT).show()
             saveDataToCsv()
             //viewModelScope.cancel()
