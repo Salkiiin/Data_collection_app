@@ -39,7 +39,6 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.example.datacollection.ui.theme.DataCollectionTheme
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,7 +48,6 @@ import java.io.IOException
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.util.Size
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -61,14 +59,10 @@ import java.util.concurrent.Executors
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.app.ActivityCompat
-import androidx.core.app.ActivityCompat.recreate
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import kotlinx.coroutines.yield
 import java.util.concurrent.ExecutionException
 import kotlin.collections.ArrayList
 import java.io.FileInputStream
@@ -87,8 +81,7 @@ fun zipFolder(sourceFolderPath: String, zipFilePath: String) {
     ZipOutputStream(FileOutputStream(zipFile)).use { zipOutputStream ->
         zipFolderInternal(sourceFolder, sourceFolder, zipOutputStream)
     }
-
-    println("Ordner erfolgreich komprimiert: $zipFilePath")
+    Log.d("Compression", "Folder successfully compressed: $zipFilePath")
 }
 
 private fun zipFolderInternal(
@@ -136,7 +129,7 @@ class MyViewModelFactory(
 }
 
 
-private const val TAG = "CameraXExample"
+private const val TAG = "Camera"
 private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
 
 fun takePicture(context: Context, lifecycleOwner: LifecycleOwner, imageCapture: ImageCapture): String {
@@ -149,8 +142,6 @@ fun takePicture(context: Context, lifecycleOwner: LifecycleOwner, imageCapture: 
     )
 
     val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-
-    val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     try{
         imageCapture.takePicture(
@@ -337,15 +328,6 @@ fun RunningPage(modifier: Modifier = Modifier, context: Context, viewModel: MyVi
             Direction.indicator_left -> Text("<", fontSize = 128.sp)
             Direction.indicator_right -> Text(">", fontSize = 128.sp)
         }
-        //var printthis = accelerometerReading.contentToString()
-        Text(
-            "Accelerometer Readings: ${
-                if (measurements.isNotEmpty()) measurements[measurements.size - 1].contentToString() else "No readings"
-            }",
-            fontSize = 32.sp
-        )
-
-
 
 
         Row(
@@ -434,7 +416,7 @@ class MyViewModel(application: Application, private val lifecycleOwner: Lifecycl
         while(true){
             while(!isRunning){
                 delay(100)
-                Log.d(TAG, "Camera should shut up")
+                Log.d(TAG, "Camera should stop")
             }
             while (isRunning) {
                 Log.d(TAG, "Camera should take pictures now")
@@ -485,7 +467,7 @@ class MyViewModel(application: Application, private val lifecycleOwner: Lifecycl
         }
     }
     private suspend fun zipData(){
-        val zipFilePath = "/storage/emulated/0/Download/schick_mich_an_Niklas_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis()) + ".zip"
+        val zipFilePath = "/storage/emulated/0/Download/sent_me_to_Niklas_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis()) + ".zip"
         val sourceFolderPath = pathList[0].substringBeforeLast('/')
         Log.e("ZipTag", "zipFilePath: $zipFilePath, sourceFolderPath: $sourceFolderPath")
         zipFolder(sourceFolderPath, zipFilePath)
@@ -494,14 +476,13 @@ class MyViewModel(application: Application, private val lifecycleOwner: Lifecycl
             file.delete()
         }
         _isSaving.value = false
-        Toast.makeText(getApplication(), "Daten gespeichert, die App kann jetzt geschlossen werden", Toast.LENGTH_SHORT).show()
+        Toast.makeText(getApplication(), "Data saved, the app may now be closed", Toast.LENGTH_SHORT).show()
     }
     fun stopDataCollection() {
         viewModelScope.launch {
             _isSaving.value = true
-            Toast.makeText(getApplication(), "Bitte warten, Daten werden gespeichert", Toast.LENGTH_SHORT).show()
+            Toast.makeText(getApplication(), "please wait, saving in progress...", Toast.LENGTH_SHORT).show()
             saveDataToCsv()
-            //viewModelScope.cancel()
             zipData()
             onCleared()
         }
