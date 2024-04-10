@@ -204,7 +204,7 @@ class CollectionService : Service(), SensorEventListener {
     }
 
     override fun onBind(p0: Intent?): IBinder? {
-        TODO("Not yet implemented")
+        return null
     }
 }
 
